@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="0"
+        android:translateY="0">
+        <!-- Lock Shackle -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#B388FF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:pathData="M44,48 V38 A10,10 0 0,1 64,38 V48" />
+        <!-- Lock Body -->
+        <path
+            android:fillColor="#7C4DFF"
+            android:pathData="M37,47 L71,47 A5,5 0 0,1 76,52 L76,74 A5,5 0 0,1 71,79 L37,79 A5,5 0 0,1 32,74 L32,52 A5,5 0 0,1 37,47 Z" />
+        <!-- Keyhole circle -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,58m-4,0a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
+        <!-- Keyhole slot -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M52,60 L56,60 L57,69 L51,69 Z" />
+        <!-- Auto lightning badge on top right -->
+        <path
+            android:fillColor="#00E676"
+            android:pathData="M70,42 L63,52 L68,52 L65,60 L75,49 L70,49 Z" />
+    </group>
+</vector>

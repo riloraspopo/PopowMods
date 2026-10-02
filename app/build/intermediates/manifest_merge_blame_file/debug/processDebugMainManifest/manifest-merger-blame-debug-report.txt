@@ -1,0 +1,67 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.popow.popowmods"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="36" />
+10
+11    <application
+11-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:4:5-35:19
+12        android:debuggable="true"
+13        android:extractNativeLibs="false"
+14        android:icon="@mipmap/ic_launcher"
+14-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:6:9-43
+15        android:label="@string/app_name"
+15-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:5:9-41
+16        android:roundIcon="@mipmap/ic_launcher_round"
+16-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:7:9-54
+17        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" >
+17-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:8:9-71
+18        <activity
+18-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:10:9-17:20
+19            android:name="com.popow.popowmods.MainActivity"
+19-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:11:13-41
+20            android:exported="true" >
+20-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:12:13-36
+21            <intent-filter>
+21-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:13:13-16:29
+22                <action android:name="android.intent.action.MAIN" />
+22-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:14:17-69
+22-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:14:25-66
+23
+24                <category android:name="android.intent.category.LAUNCHER" />
+24-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:15:17-77
+24-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:15:27-74
+25            </intent-filter>
+26        </activity>
+27
+28        <meta-data
+28-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:19:9-21:36
+29            android:name="xposedmodule"
+29-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:20:13-40
+30            android:value="true" />
+30-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:21:13-33
+31        <meta-data
+31-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:23:9-25:69
+32            android:name="xposeddescription"
+32-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:24:13-45
+33            android:value="Popow Mods - Auto Confirm PIN 4-Digit" />
+33-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:25:13-66
+34        <meta-data
+34-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:27:9-29:34
+35            android:name="xposedminversion"
+35-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:28:13-44
+36            android:value="82" />
+36-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:29:13-31
+37        <meta-data
+37-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:31:9-33:53
+38            android:name="xposedscope"
+38-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:32:13-39
+39            android:resource="@array/xposedscope" />
+39-->D:\rilo\Project\PopowMods\app\src\main\AndroidManifest.xml:33:13-50
+40    </application>
+41
+42</manifest>

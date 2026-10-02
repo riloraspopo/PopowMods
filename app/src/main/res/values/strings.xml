@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Popow Mods</string>
+    <string name="app_version">v1.0 • Xposed Module</string>
+    <string name="status_title">Status Modul</string>
+    <string name="status_scope">Scope: com.android.systemui</string>
+    <string name="status_badge">Active Hook</string>
+    <string name="feature_title">Fungsi &amp; Fitur</string>
+    <string name="feature_1_name">Auto Confirm PIN (4 Digit)</string>
+    <string name="feature_1_desc">Otomatis memverifikasi dan membuka layar kunci (Keyguard) saat 4 digit PIN selesai ditekan. Tidak perlu lagi menekan tombol centang / Enter secara manual.</string>
+    <string name="guide_title">Petunjuk Penggunaan</string>
+    <string name="guide_step1">1. Buka aplikasi LSPosed / Vector Manager.</string>
+    <string name="guide_step2">2. Aktifkan toggle modul \"Popow Mods\".</string>
+    <string name="guide_step3">3. Pastikan scope \"System UI\" tercentang.</string>
+    <string name="guide_step4">4. Reboot perangkat atau restart SystemUI untuk menerapkan perubahan.</string>
+    <string name="footer_text">Dibuat khusus untuk ROM AOSP / LineageOS</string>
+</resources>
