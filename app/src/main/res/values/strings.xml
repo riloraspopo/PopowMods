@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Popow Mods</string>
-    <string name="app_version">v1.2 • Xposed Module</string>
+    <string name="app_version">v1.3 • Xposed Module</string>
     <string name="status_title">Status Modul</string>
     <string name="status_scope">Scope: System UI, Nexus/Pixel Launcher</string>
     <string name="status_badge">Active Hooks</string>
@@ -17,6 +17,8 @@
     <string name="feature_1_desc">Otomatis memverifikasi dan membuka layar kunci (Keyguard) saat 4 digit PIN selesai ditekan tanpa perlu menekan tombol centang / Enter secara manual.</string>
     <string name="feature_2_name">Double Tap to Sleep (Home Screen)</string>
     <string name="feature_2_desc">Ketuk dua kali (double tap) pada area kosong di layar utama (Home Screen) untuk mematikan layar dan mengunci perangkat seketika.</string>
+    <string name="feature_3_name">Dual-Line Network Traffic Monitor (▲ / ▼)</string>
+    <string name="feature_3_desc">Memisahkan indikator kecepatan internet di status bar menjadi 2 baris terpisah: Upload di baris atas (▲) dan Download di baris bawah (▼) beserta indikator panah.</string>
     
     <string name="guide_title">Petunjuk Penggunaan</string>
     <string name="guide_step1">1. Buka aplikasi LSPosed / Vector Manager.</string>

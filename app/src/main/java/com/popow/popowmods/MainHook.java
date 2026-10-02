@@ -8,9 +8,13 @@ import android.os.Build;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.GestureDetector;
+import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.TextView;
+
+import java.util.Locale;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -94,6 +98,140 @@ public class MainHook implements IXposedHookLoadPackage {
             XposedBridge.log("PopowMods: Successfully hooked KeyguardPinViewController.onUserInput");
         } catch (Throwable t) {
             XposedBridge.log("PopowMods: KeyguardPinViewController hook error: " + t);
+        }
+
+        // 3. Hook NetworkTraffic for separate upload (top) and download (bottom) with arrows
+        hookNetworkTraffic(lpparam.classLoader);
+    }
+
+    private void hookNetworkTraffic(ClassLoader classLoader) {
+        String[] targetClasses = new String[] {
+            "com.android.internal.statusbar.NetworkTraffic$1",
+            "com.libremobileos.statusbar.NetworkTraffic$3"
+        };
+
+        for (String targetClass : targetClasses) {
+            boolean hooked = false;
+            try {
+                XposedHelpers.findAndHookMethod(
+                        targetClass,
+                        classLoader,
+                        "displayStatsAndReschedule",
+                        new XC_MethodHook() {
+                            @Override
+                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                                handleNetworkTrafficDisplay(param);
+                            }
+                        }
+                );
+                XposedBridge.log("PopowMods: Successfully hooked " + targetClass + ".displayStatsAndReschedule");
+                hooked = true;
+            } catch (Throwable t) {
+                // Try fallback with system classloader
+                try {
+                    XposedHelpers.findAndHookMethod(
+                            targetClass,
+                            ClassLoader.getSystemClassLoader(),
+                            "displayStatsAndReschedule",
+                            new XC_MethodHook() {
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                                    handleNetworkTrafficDisplay(param);
+                                }
+                            }
+                    );
+                    XposedBridge.log("PopowMods: Successfully hooked " + targetClass + ".displayStatsAndReschedule via SystemClassLoader");
+                    hooked = true;
+                } catch (Throwable t2) {
+                    XposedBridge.log("PopowMods: Note: " + targetClass + " not hooked: " + t2.getMessage());
+                }
+            }
+        }
+    }
+
+    private void handleNetworkTrafficDisplay(XC_MethodHook.MethodHookParam param) {
+        try {
+            TextView trafficView = (TextView) XposedHelpers.getObjectField(param.thisObject, "this$0");
+            if (trafficView == null || trafficView.getVisibility() != View.VISIBLE) {
+                return;
+            }
+
+            int mode = XposedHelpers.getIntField(trafficView, "mMode");
+            if (mode == 0) {
+                return;
+            }
+
+            long txKbps = XposedHelpers.getLongField(trafficView, "mTxKbps");
+            long rxKbps = XposedHelpers.getLongField(trafficView, "mRxKbps");
+            int units = XposedHelpers.getIntField(trafficView, "mUnits");
+
+            String txFormatted = "▲ " + formatTrafficSpeed(txKbps, units);
+            String rxFormatted = "▼ " + formatTrafficSpeed(rxKbps, units);
+
+            String resultText;
+            if (mode == 3) {
+                resultText = txFormatted + "\n" + rxFormatted;
+            } else if (mode == 1) {
+                resultText = txFormatted;
+            } else if (mode == 2) {
+                resultText = rxFormatted;
+            } else {
+                return;
+            }
+
+            if (!resultText.contentEquals(trafficView.getText())) {
+                trafficView.setText(resultText);
+            }
+            trafficView.setLineSpacing(0f, 0.85f);
+            trafficView.setIncludeFontPadding(false);
+            trafficView.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            trafficView.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: handleNetworkTrafficDisplay error: " + t);
+        }
+    }
+
+    private static String formatTrafficSpeed(long kbps, int units) {
+        switch (units) {
+            case 0: // UNITS_KILOBITS
+                return kbps + " kb/s";
+            case 1: // UNITS_MEGABITS
+                return String.format(Locale.ENGLISH, "%.1f Mb/s", kbps / 1000.0f);
+            case 2: // UNITS_KILOBYTES
+                return String.format(Locale.ENGLISH, "%.0f kB/s", kbps / 8.0f);
+            case 3: // UNITS_MEGABYTES
+                float mb = kbps / 8000.0f;
+                if (mb < 10f) {
+                    return String.format(Locale.ENGLISH, "%.2f MB/s", mb);
+                } else if (mb < 100f) {
+                    return String.format(Locale.ENGLISH, "%.1f MB/s", mb);
+                } else {
+                    return String.format(Locale.ENGLISH, "%.0f MB/s", mb);
+                }
+            case 4: // UNITS_AUTOBYTES
+            default:
+                if (kbps < 8000) {
+                    float kBps = kbps / 8.0f;
+                    if (kBps == 0f) {
+                        return "0 kB/s";
+                    } else if (kBps < 10f) {
+                        return String.format(Locale.ENGLISH, "%.1f kB/s", kBps);
+                    } else {
+                        return String.format(Locale.ENGLISH, "%.0f kB/s", kBps);
+                    }
+                } else if (kbps < 8000000) {
+                    float mBps = kbps / 8000.0f;
+                    if (mBps < 10f) {
+                        return String.format(Locale.ENGLISH, "%.2f MB/s", mBps);
+                    } else if (mBps < 100f) {
+                        return String.format(Locale.ENGLISH, "%.1f MB/s", mBps);
+                    } else {
+                        return String.format(Locale.ENGLISH, "%.0f MB/s", mBps);
+                    }
+                } else {
+                    float gBps = kbps / 8000000.0f;
+                    return String.format(Locale.ENGLISH, "%.2f GB/s", gBps);
+                }
         }
     }
 

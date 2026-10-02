@@ -1,7 +1,0 @@
-com.popow.popowmods.app-pngs-0 D:\rilo\Project\PopowMods\app\build\generated\res\pngs\debug
-com.popow.popowmods.app-updated_navigation_xml-1 D:\rilo\Project\PopowMods\app\build\generated\updated_navigation_xml\debug
-com.popow.popowmods.app-packageDebugResources-2 D:\rilo\Project\PopowMods\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
-com.popow.popowmods.app-packageDebugResources-3 D:\rilo\Project\PopowMods\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
-com.popow.popowmods.app-debug-4 D:\rilo\Project\PopowMods\app\build\intermediates\merged_res\debug\mergeDebugResources
-com.popow.popowmods.app-debug-5 D:\rilo\Project\PopowMods\app\src\debug\res
-com.popow.popowmods.app-main-6 D:\rilo\Project\PopowMods\app\src\main\res
