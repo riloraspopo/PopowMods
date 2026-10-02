@@ -11,6 +11,10 @@
     <string name="btn_restart_systemui">⚡ Restart System UI</string>
     <string name="btn_restart_launcher">🏠 Restart Launcher</string>
     <string name="btn_restart_all">🔄 Restart Semua (SystemUI &amp; Launcher)</string>
+    <string name="network_settings_title">Pengaturan Network Traffic</string>
+    <string name="network_settings_desc">Atur interval pembaruan monitor network traffic (1-60 detik). Perubahan langsung diterapkan ke SystemUI.</string>
+    <string name="network_settings_hint">Contoh: 2</string>
+    <string name="btn_save_network_interval">💾 Simpan Interval Update</string>
 
     <string name="feature_title">Fungsi &amp; Fitur</string>
     <string name="feature_1_name">Auto Confirm PIN (4 Digit)</string>
