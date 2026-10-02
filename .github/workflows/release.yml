@@ -1,0 +1,82 @@
+name: Build & Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag versi release (contoh: v1.3)'
+        required: false
+        default: 'v1.3'
+        type: string
+      release_title:
+        description: 'Judul Release'
+        required: false
+        default: 'Popow Mods v1.3'
+        type: string
+      prerelease:
+        description: 'Tandai sebagai Pre-release?'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Prepare Release Assets
+        id: prepare_assets
+        run: |
+          TAG="${{ github.event.inputs.tag_name }}"
+          if [ -z "$TAG" ]; then
+            TAG="v1.3"
+          fi
+          APK_NAME="PopowMods-${TAG}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "${APK_NAME}"
+          echo "apk_path=${APK_NAME}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.prepare_assets.outputs.tag }}"
+          TITLE="${{ github.event.inputs.release_title }}"
+          if [ -z "$TITLE" ]; then
+            TITLE="Popow Mods ${TAG}"
+          fi
+          PRERELEASE_FLAG=""
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "Release ${TAG} sudah ada, memperbarui file asset..."
+            gh release upload "${TAG}" "${{ steps.prepare_assets.outputs.apk_path }}" --clobber
+          else
+            echo "Membuat release baru ${TAG}..."
+            gh release create "${TAG}" "${{ steps.prepare_assets.outputs.apk_path }}" \
+              --title "${TITLE}" \
+              --generate-notes \
+              $PRERELEASE_FLAG
+          fi
