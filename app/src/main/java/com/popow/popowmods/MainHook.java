@@ -31,6 +31,12 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String ACTION_SLEEP = "com.popow.popowmods.ACTION_SLEEP";
     private static final String KEYGUARD_PIN_VIEW_CONTROLLER = "com.android.keyguard.KeyguardPinViewController";
     private static final String WORKSPACE_TOUCH_LISTENER = "com.android.launcher3.touch.WorkspaceTouchListener";
+    private static final String PROP_NETWORK_INTERVAL_SEC = "persist.popowmods.net_traffic_interval_sec";
+    private static final int DEFAULT_NETWORK_INTERVAL_SEC = 2;
+    private static final int MIN_NETWORK_INTERVAL_SEC = 1;
+    private static final int MAX_NETWORK_INTERVAL_SEC = 60;
+    private static long sLastIntervalReadUptimeMs = 0L;
+    private static int sCachedNetworkIntervalSec = DEFAULT_NETWORK_INTERVAL_SEC;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
@@ -161,6 +167,8 @@ public class MainHook implements IXposedHookLoadPackage {
                 return;
             }
 
+            applyConfiguredNetworkRefreshInterval(param.thisObject, trafficView);
+
             long txKbps = XposedHelpers.getLongField(trafficView, "mTxKbps");
             long rxKbps = XposedHelpers.getLongField(trafficView, "mRxKbps");
             int units = XposedHelpers.getIntField(trafficView, "mUnits");
@@ -241,6 +249,76 @@ public class MainHook implements IXposedHookLoadPackage {
                     float gBps = kbps / 8000000.0f;
                     return String.format(Locale.ENGLISH, "%.2f GB/s", gBps);
                 }
+        }
+    }
+
+    private void applyConfiguredNetworkRefreshInterval(Object callbackObject, TextView trafficView) {
+        int intervalSec = getNetworkIntervalSeconds();
+        applyIntervalToObject(trafficView, intervalSec);
+        applyIntervalToObject(callbackObject, intervalSec);
+    }
+
+    private void applyIntervalToObject(Object target, int intervalSec) {
+        if (target == null) {
+            return;
+        }
+        String[] candidateFields = new String[] {
+                "mRefreshInterval",
+                "mRefreshRate",
+                "mInterval",
+                "mUpdateInterval"
+        };
+        for (String fieldName : candidateFields) {
+            trySetNumericField(target, fieldName, intervalSec);
+        }
+    }
+
+    private void trySetNumericField(Object target, String fieldName, int intervalSec) {
+        try {
+            int current = XposedHelpers.getIntField(target, fieldName);
+            int next = current > MAX_NETWORK_INTERVAL_SEC ? intervalSec * 1000 : intervalSec;
+            if (current != next) {
+                XposedHelpers.setIntField(target, fieldName, next);
+            }
+            return;
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            long current = XposedHelpers.getLongField(target, fieldName);
+            long next = current > MAX_NETWORK_INTERVAL_SEC ? intervalSec * 1000L : intervalSec;
+            if (current != next) {
+                XposedHelpers.setLongField(target, fieldName, next);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private int getNetworkIntervalSeconds() {
+        long now = SystemClock.uptimeMillis();
+        if (now - sLastIntervalReadUptimeMs >= 1000L) {
+            sCachedNetworkIntervalSec = readSystemPropertyInterval();
+            sLastIntervalReadUptimeMs = now;
+        }
+        return sCachedNetworkIntervalSec;
+    }
+
+    private int readSystemPropertyInterval() {
+        try {
+            Class<?> spClass = Class.forName("android.os.SystemProperties");
+            String value = (String) XposedHelpers.callStaticMethod(
+                    spClass,
+                    "get",
+                    PROP_NETWORK_INTERVAL_SEC,
+                    String.valueOf(DEFAULT_NETWORK_INTERVAL_SEC)
+            );
+            int parsed = Integer.parseInt(value);
+            if (parsed < MIN_NETWORK_INTERVAL_SEC || parsed > MAX_NETWORK_INTERVAL_SEC) {
+                return DEFAULT_NETWORK_INTERVAL_SEC;
+            }
+            return parsed;
+        } catch (Throwable ignored) {
+            return DEFAULT_NETWORK_INTERVAL_SEC;
         }
     }
 
