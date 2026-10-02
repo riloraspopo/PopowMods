@@ -165,21 +165,30 @@ public class MainHook implements IXposedHookLoadPackage {
             long rxKbps = XposedHelpers.getLongField(trafficView, "mRxKbps");
             int units = XposedHelpers.getIntField(trafficView, "mUnits");
 
-            String txFormatted = "▲ " + formatTrafficSpeed(txKbps, units);
-            String rxFormatted = "▼ " + formatTrafficSpeed(rxKbps, units);
+            String txFormatted = "\u25B4 " + formatTrafficSpeed(txKbps, units);
+            String rxFormatted = "\u25BE " + formatTrafficSpeed(rxKbps, units);
 
-            String resultText;
+            CharSequence resultText;
             if (mode == 3) {
-                resultText = txFormatted + "\n" + rxFormatted;
+                String full = txFormatted + "\n" + rxFormatted;
+                android.text.SpannableString ss = new android.text.SpannableString(full);
+                ss.setSpan(new android.text.style.RelativeSizeSpan(1.25f), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                int secondArrowPos = txFormatted.length() + 1;
+                ss.setSpan(new android.text.style.RelativeSizeSpan(1.25f), secondArrowPos, secondArrowPos + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                resultText = ss;
             } else if (mode == 1) {
-                resultText = txFormatted;
+                android.text.SpannableString ss = new android.text.SpannableString(txFormatted);
+                ss.setSpan(new android.text.style.RelativeSizeSpan(1.25f), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                resultText = ss;
             } else if (mode == 2) {
-                resultText = rxFormatted;
+                android.text.SpannableString ss = new android.text.SpannableString(rxFormatted);
+                ss.setSpan(new android.text.style.RelativeSizeSpan(1.25f), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                resultText = ss;
             } else {
                 return;
             }
 
-            if (!resultText.contentEquals(trafficView.getText())) {
+            if (!resultText.toString().contentEquals(trafficView.getText())) {
                 trafficView.setText(resultText);
             }
             trafficView.setLineSpacing(0f, 0.85f);
