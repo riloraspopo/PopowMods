@@ -2,11 +2,16 @@ package com.popow.popowmods;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import java.io.DataOutputStream;
+
 public class MainActivity extends Activity {
+
+    private static final String TAG = "PopowMods";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,26 +55,28 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                boolean success = false;
+                boolean started = false;
                 try {
-                    Process process = new ProcessBuilder("su", "-c", command)
-                            .redirectErrorStream(true)
-                            .start();
-                    process.getOutputStream().close();
-                    int exitCode = process.waitFor();
-                    success = (exitCode == 0);
+                    Process process = Runtime.getRuntime().exec("su");
+                    DataOutputStream os = new DataOutputStream(process.getOutputStream());
+                    os.writeBytes(command + "\n");
+                    os.writeBytes("exit\n");
+                    os.flush();
+                    os.close();
+                    started = true;
+                    process.waitFor();
                 } catch (Exception e) {
-                    success = false;
+                    Log.e(TAG, "Root execution error: ", e);
                 }
 
-                final boolean finalSuccess = success;
+                final boolean success = started;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (finalSuccess) {
+                        if (success) {
                             Toast.makeText(MainActivity.this, successMsg, Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(MainActivity.this, "Gagal (pastikan izin root diberikan di Root Manager)", Toast.LENGTH_LONG).show();
+                            Toast.makeText(MainActivity.this, "Gagal menjalankan su. Pastikan perangkat di-root.", Toast.LENGTH_LONG).show();
                         }
                     }
                 });
