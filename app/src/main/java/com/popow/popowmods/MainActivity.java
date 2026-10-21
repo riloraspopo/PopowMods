@@ -49,6 +49,19 @@ public class MainActivity extends Activity {
     private static final int MIN_AA_DPI = 90;
     private static final int MAX_AA_DPI = 360;
 
+    // Android Auto Rail Side settings
+    private static final String PREF_AA_RAIL = "aa_rail";
+    private static final String PROP_AA_RAIL_SYS = "persist.sys.popow_aa_rail";
+    private static final String PROP_AA_RAIL_SIDE = "persist.popowmods.aa_rail_side";
+    private static final String PROP_AA_RAIL = "persist.popowmods.aa_rail";
+    private static final int RAIL_BOTTOM = 0;
+    private static final int RAIL_LEFT = 1;
+    private static final int RAIL_RIGHT = 2;
+
+    private Button btnRailBottom;
+    private Button btnRailRight;
+    private Button btnRailLeft;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -80,6 +93,10 @@ public class MainActivity extends Activity {
         Button btnPresetAa140 = findViewById(R.id.btnPresetAa140);
         Button btnPresetAa160 = findViewById(R.id.btnPresetAa160);
         Button btnPresetAaDefault = findViewById(R.id.btnPresetAaDefault);
+
+        btnRailBottom = findViewById(R.id.btnRailBottom);
+        btnRailRight = findViewById(R.id.btnRailRight);
+        btnRailLeft = findViewById(R.id.btnRailLeft);
 
         if (btnRestartSystemUi != null) {
             btnRestartSystemUi.setOnClickListener(new View.OnClickListener() {
@@ -119,20 +136,72 @@ public class MainActivity extends Activity {
 
         // Initialize toggle states
         final int savedAaDpi = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(PREF_AA_DPI, DEFAULT_AA_DPI);
+        int savedRailInit = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(PREF_AA_RAIL, -1);
+        if (savedRailInit == -1) {
+            savedRailInit = RAIL_BOTTOM;
+            try {
+                Class<?> spClass = Class.forName("android.os.SystemProperties");
+                String val = (String) spClass.getMethod("get", String.class, String.class).invoke(null, PROP_AA_RAIL_SYS, "");
+                if (val == null || val.isEmpty()) {
+                    val = (String) spClass.getMethod("get", String.class, String.class).invoke(null, PROP_AA_RAIL_SIDE, "");
+                }
+                if ("2".equals(val)) {
+                    savedRailInit = RAIL_RIGHT;
+                } else if ("1".equals(val)) {
+                    savedRailInit = RAIL_LEFT;
+                }
+            } catch (Throwable ignored) {}
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putInt(PREF_AA_RAIL, savedRailInit).apply();
+        }
+        final int savedRail = savedRailInit;
+        updateRailButtonsUi(savedRail);
+
+        if (btnRailBottom != null) {
+            btnRailBottom.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    setRailPosition(RAIL_BOTTOM);
+                }
+            });
+        }
+
+        if (btnRailRight != null) {
+            btnRailRight.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    setRailPosition(RAIL_RIGHT);
+                }
+            });
+        }
+
+        if (btnRailLeft != null) {
+            btnRailLeft.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    setRailPosition(RAIL_LEFT);
+                }
+            });
+        }
+
         boolean isPinEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_PIN_ENABLED, true);
         boolean isDt2sEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_DT2S_ENABLED, true);
         boolean isNetTrafficEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_NET_TRAFFIC_ENABLED, true);
-        boolean isAaDpiEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_AA_DPI_ENABLED, savedAaDpi > 0);
+        boolean isAaDpiEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_AA_DPI_ENABLED, savedAaDpi > 0 || savedRail > 0);
 
         // Sync system properties on startup
-        if (savedAaDpi > 0 && isAaDpiEnabled) {
-            executeRootAsync(
-                    "setprop " + PROP_AA_DPI + " " + savedAaDpi + "; " +
-                    "setprop " + PROP_AA_DPI_ENABLED + " 1; " +
-                    "setprop " + PROP_AA_DPI_LEGACY + " " + savedAaDpi + "; " +
-                    "setprop " + PROP_AA_DPI_ENABLED_LEGACY + " 1",
-                    null
-            );
+        if (isAaDpiEnabled) {
+            String syncCmd = "setprop " + PROP_AA_DPI_ENABLED + " 1; " +
+                    "setprop " + PROP_AA_DPI_ENABLED_LEGACY + " 1";
+            if (savedAaDpi > 0) {
+                syncCmd += "; setprop " + PROP_AA_DPI + " " + savedAaDpi + "; " +
+                        "setprop " + PROP_AA_DPI_LEGACY + " " + savedAaDpi;
+            }
+            if (savedRail > 0) {
+                syncCmd += "; setprop " + PROP_AA_RAIL_SYS + " " + savedRail + "; " +
+                        "setprop " + PROP_AA_RAIL_SIDE + " " + savedRail + "; " +
+                        "setprop " + PROP_AA_RAIL + " " + savedRail;
+            }
+            executeRootAsync(syncCmd, null);
         }
 
         if (switchPin != null) {
@@ -195,12 +264,29 @@ public class MainActivity extends Activity {
                     if (cardAaDpi != null) {
                         cardAaDpi.setVisibility(isChecked ? View.VISIBLE : View.GONE);
                     }
-                    executeRootAsync(
-                            "setprop " + PROP_AA_DPI_ENABLED + " " + (isChecked ? "1" : "0") + "; " +
-                            "setprop " + PROP_AA_DPI_ENABLED_LEGACY + " " + (isChecked ? "1" : "0") + "; " +
-                            "am force-stop com.google.android.projection.gearhead",
-                            isChecked ? "Android Auto DPI diaktifkan" : "Android Auto DPI dinonaktifkan (default)"
-                    );
+                    if (!isChecked) {
+                        executeRootAsync(
+                                "setprop " + PROP_AA_DPI_ENABLED + " 0; " +
+                                "setprop " + PROP_AA_DPI_ENABLED_LEGACY + " 0; " +
+                                "setprop " + PROP_AA_RAIL_SYS + " 0; " +
+                                "setprop " + PROP_AA_RAIL_SIDE + " 0; " +
+                                "setprop " + PROP_AA_RAIL + " 0; " +
+                                "am force-stop com.google.android.projection.gearhead",
+                                "Kustomisasi Android Auto dinonaktifkan (default)"
+                        );
+                    } else {
+                        int r = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(PREF_AA_RAIL, 0);
+                        int d = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(PREF_AA_DPI, 0);
+                        String cmd = "setprop " + PROP_AA_DPI_ENABLED + " 1; " +
+                                "setprop " + PROP_AA_DPI_ENABLED_LEGACY + " 1; " +
+                                "setprop " + PROP_AA_DPI + " " + d + "; " +
+                                "setprop " + PROP_AA_DPI_LEGACY + " " + d + "; " +
+                                "setprop " + PROP_AA_RAIL_SYS + " " + r + "; " +
+                                "setprop " + PROP_AA_RAIL_SIDE + " " + r + "; " +
+                                "setprop " + PROP_AA_RAIL + " " + r + "; " +
+                                "am force-stop com.google.android.projection.gearhead";
+                        executeRootAsync(cmd, "Kustomisasi Android Auto diaktifkan");
+                    }
                 }
             });
         }
@@ -405,6 +491,41 @@ public class MainActivity extends Activity {
                 }
             });
         }
+    }
+
+    private void updateRailButtonsUi(int rail) {
+        if (btnRailBottom != null) {
+            boolean active = (rail == RAIL_BOTTOM);
+            btnRailBottom.setBackgroundResource(active ? R.drawable.btn_primary : R.drawable.btn_secondary);
+            btnRailBottom.setText(active ? "✓ " + getString(R.string.aa_rail_bottom) : getString(R.string.aa_rail_bottom));
+        }
+        if (btnRailRight != null) {
+            boolean active = (rail == RAIL_RIGHT);
+            btnRailRight.setBackgroundResource(active ? R.drawable.btn_primary : R.drawable.btn_secondary);
+            btnRailRight.setText(active ? "✓ " + getString(R.string.aa_rail_right) : getString(R.string.aa_rail_right));
+        }
+        if (btnRailLeft != null) {
+            boolean active = (rail == RAIL_LEFT);
+            btnRailLeft.setBackgroundResource(active ? R.drawable.btn_primary : R.drawable.btn_secondary);
+            btnRailLeft.setText(active ? "✓ " + getString(R.string.aa_rail_left) : getString(R.string.aa_rail_left));
+        }
+    }
+
+    private void setRailPosition(final int rail) {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putInt(PREF_AA_RAIL, rail)
+                .apply();
+        updateRailButtonsUi(rail);
+
+        String name = (rail == RAIL_RIGHT) ? "Kanan" : (rail == RAIL_LEFT ? "Kiri" : "Bawah (Default)");
+        executeRootAsync(
+                "setprop " + PROP_AA_RAIL_SYS + " " + rail + "; " +
+                "setprop " + PROP_AA_RAIL_SIDE + " " + rail + "; " +
+                "setprop " + PROP_AA_RAIL + " " + rail + "; " +
+                "am force-stop com.google.android.projection.gearhead",
+                "Posisi Taskbar: " + name + ". Android Auto direstart."
+        );
     }
 
     private void executeRootAsync(final String command, final String successMsg) {

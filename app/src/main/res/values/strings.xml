@@ -23,6 +23,12 @@
     <string name="aa_dpi_hint">Contoh: 140 (0 = default mobil)</string>
     <string name="btn_save_aa_dpi">💾 Simpan DPI Android Auto</string>
 
+    <string name="aa_rail_title">Posisi Taskbar (Dock / Rail)</string>
+    <string name="aa_rail_desc">Pilih posisi bilah navigasi taskbar di Android Auto. Di layar mobil standar (800x480), taskbar default berada di bawah.</string>
+    <string name="aa_rail_bottom">Bawah (Default)</string>
+    <string name="aa_rail_right">Sisi Kanan</string>
+    <string name="aa_rail_left">Sisi Kiri</string>
+
     <string name="feature_title">Fungsi &amp; Fitur</string>
     <string name="feature_subtitle">Aktifkan atau nonaktifkan modul per fitur sesuai kebutuhan.</string>
     <string name="feature_1_name">Auto Confirm PIN (4 Digit)</string>
@@ -31,8 +37,8 @@
     <string name="feature_2_desc">Ketuk dua kali (double tap) pada area kosong di layar utama (Home Screen) untuk mematikan layar dan mengunci perangkat seketika.</string>
     <string name="feature_3_name">Dual-Line Network Traffic Monitor (▲ / ▼)</string>
     <string name="feature_3_desc">Memisahkan indikator kecepatan internet di status bar menjadi 2 baris terpisah: Upload di baris atas (▲) dan Download di baris bawah (▼) beserta indikator panah dan interval sub-detik yang halus.</string>
-    <string name="feature_4_name">Android Auto Custom DPI (Coolwalk Split-Screen)</string>
-    <string name="feature_4_desc">Menurunkan DPI layar virtual head unit Android Auto agar tampilan lebih lega, proporsional, dan membuka mode split-screen dashboard.</string>
+    <string name="feature_4_name">Kustomisasi Android Auto (DPI &amp; Posisi Taskbar)</string>
+    <string name="feature_4_desc">Menyesuaikan DPI layar virtual head unit dan posisi bilah navigasi taskbar (bawah, kanan, atau kiri) di Android Auto.</string>
     
     <string name="guide_title">Petunjuk Penggunaan</string>
     <string name="guide_step1">1. Buka aplikasi LSPosed / Vector Manager.</string>
