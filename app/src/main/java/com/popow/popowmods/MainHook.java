@@ -18,10 +18,13 @@ import android.view.View;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -217,6 +220,31 @@ public class MainHook implements IXposedHookLoadPackage {
         }
     }
 
+    private static class TrafficSample {
+        final long time;
+        final long txBytes;
+        final long rxBytes;
+
+        TrafficSample(long time, long txBytes, long rxBytes) {
+            this.time = time;
+            this.txBytes = txBytes;
+            this.rxBytes = rxBytes;
+        }
+    }
+
+    private static final Map<TextView, ArrayDeque<TrafficSample>> sHistoryMap = new WeakHashMap<>();
+
+    private static ArrayDeque<TrafficSample> getHistoryForView(TextView trafficView) {
+        synchronized (sHistoryMap) {
+            ArrayDeque<TrafficSample> history = sHistoryMap.get(trafficView);
+            if (history == null) {
+                history = new ArrayDeque<>();
+                sHistoryMap.put(trafficView, history);
+            }
+            return history;
+        }
+    }
+
     private void handleRecalculateStats(XC_MethodHook.MethodHookParam param) {
         TextView trafficView = (TextView) XposedHelpers.getObjectField(param.thisObject, "this$0");
         if (trafficView == null) {
@@ -228,7 +256,8 @@ public class MainHook implements IXposedHookLoadPackage {
         long lastUpdateTime = XposedHelpers.getLongField(trafficView, "mLastUpdateTime");
         long timeDelta = now - lastUpdateTime;
 
-        if (timeDelta < (long) (intervalMs * 0.95f)) {
+        // Skip duplicate calls within 75% of configured interval
+        if (timeDelta < (long) (intervalMs * 0.75f)) {
             return;
         }
 
@@ -269,29 +298,65 @@ public class MainHook implements IXposedHookLoadPackage {
             }
         }
 
-        long lastTxBytes = XposedHelpers.getLongField(trafficView, "mLastTxBytes");
-        long lastRxBytes = XposedHelpers.getLongField(trafficView, "mLastRxBytes");
-
+        ArrayDeque<TrafficSample> history = getHistoryForView(trafficView);
         boolean networksChanged = false;
         try {
             networksChanged = XposedHelpers.getBooleanField(trafficView, "mNetworksChanged");
         } catch (Throwable ignored) {
         }
 
-        long txBytesDelta = txBytes - lastTxBytes;
-        long rxBytesDelta = rxBytes - lastRxBytes;
-
-        if (!networksChanged && timeDelta > 0 && txBytesDelta >= 0 && rxBytesDelta >= 0) {
-            long txKbps = (long) (txBytesDelta * 8f / 1000f / (timeDelta / 1000f));
-            long rxKbps = (long) (rxBytesDelta * 8f / 1000f / (timeDelta / 1000f));
-            XposedHelpers.setLongField(trafficView, "mTxKbps", txKbps);
-            XposedHelpers.setLongField(trafficView, "mRxKbps", rxKbps);
-        } else if (networksChanged) {
+        if (networksChanged) {
+            synchronized (history) {
+                history.clear();
+                history.addLast(new TrafficSample(now, txBytes, rxBytes));
+            }
             XposedHelpers.setLongField(trafficView, "mTxKbps", 0L);
             XposedHelpers.setLongField(trafficView, "mRxKbps", 0L);
             try {
                 XposedHelpers.setBooleanField(trafficView, "mNetworksChanged", false);
             } catch (Throwable ignored) {
+            }
+            XposedHelpers.setLongField(trafficView, "mLastTxBytes", txBytes);
+            XposedHelpers.setLongField(trafficView, "mLastRxBytes", rxBytes);
+            XposedHelpers.setLongField(trafficView, "mLastUpdateTime", now);
+            return;
+        }
+
+        // Window size minimal 1000ms untuk cegah pembacaan 0 akibat packet burst delay
+        long windowMs = Math.max(intervalMs, 1000L);
+        long targetTime = now - windowMs;
+
+        synchronized (history) {
+            history.addLast(new TrafficSample(now, txBytes, rxBytes));
+
+            while (history.size() > 1) {
+                Iterator<TrafficSample> it = history.iterator();
+                it.next(); // first
+                TrafficSample second = it.next();
+                if (second.time <= targetTime) {
+                    history.pollFirst();
+                } else {
+                    break;
+                }
+            }
+
+            TrafficSample baseline = history.peekFirst();
+            if (baseline != null) {
+                long sampleTimeDelta = now - baseline.time;
+                long txBytesDelta = txBytes - baseline.txBytes;
+                long rxBytesDelta = rxBytes - baseline.rxBytes;
+
+                if (txBytesDelta < 0 || rxBytesDelta < 0) {
+                    history.clear();
+                    history.addLast(new TrafficSample(now, txBytes, rxBytes));
+                    XposedHelpers.setLongField(trafficView, "mTxKbps", 0L);
+                    XposedHelpers.setLongField(trafficView, "mRxKbps", 0L);
+                } else if (sampleTimeDelta >= 100) {
+                    long txKbps = (long) (txBytesDelta * 8f / 1000f / (sampleTimeDelta / 1000f));
+                    long rxKbps = (long) (rxBytesDelta * 8f / 1000f / (sampleTimeDelta / 1000f));
+                    XposedHelpers.setLongField(trafficView, "mTxKbps", txKbps);
+                    XposedHelpers.setLongField(trafficView, "mRxKbps", rxKbps);
+                }
             }
         }
 
