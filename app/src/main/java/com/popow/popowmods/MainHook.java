@@ -18,6 +18,7 @@ import android.view.View;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -70,7 +71,7 @@ public class MainHook implements IXposedHookLoadPackage {
             hookSystemUI(lpparam);
         } else if (LAUNCHER_NEXUS_PKG.equals(lpparam.packageName) || LAUNCHER_AOSP_PKG.equals(lpparam.packageName)) {
             hookLauncher(lpparam);
-        } else if (GEARHEAD_PKG.equals(lpparam.packageName)) {
+        } else if (GEARHEAD_PKG.equals(lpparam.packageName) || "com.google.android.gms".equals(lpparam.packageName)) {
             hookAndroidAuto(lpparam);
         }
     }
@@ -672,6 +673,212 @@ public class MainHook implements IXposedHookLoadPackage {
         XposedBridge.log("PopowMods: Initializing Android Auto hooks for " + lpparam.packageName
                 + " (enabled=" + enabled + ", dpi=" + customDpi + ")");
 
+        // Crash and Exit Diagnostics
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "android.os.Process",
+                    ClassLoader.getSystemClassLoader(),
+                    "killProcess",
+                    int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                            int pid = (Integer) param.args[0];
+                            XposedBridge.log("PopowMods: Process.killProcess(" + pid + ") called! Caller stack: "
+                                    + android.util.Log.getStackTraceString(new Throwable()));
+                        }
+                    }
+            );
+        } catch (Throwable ignored) {}
+
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Runtime.class,
+                    "exit",
+                    int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                            int status = (Integer) param.args[0];
+                            XposedBridge.log("PopowMods: Runtime.exit(" + status + ") called! Caller stack: "
+                                    + android.util.Log.getStackTraceString(new Throwable()));
+                        }
+                    }
+            );
+        } catch (Throwable ignored) {}
+
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Runtime.class,
+                    "halt",
+                    int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                            int status = (Integer) param.args[0];
+                            XposedBridge.log("PopowMods: Runtime.halt(" + status + ") called! Caller stack: "
+                                    + android.util.Log.getStackTraceString(new Throwable()));
+                        }
+                    }
+            );
+        } catch (Throwable ignored) {}
+
+        try {
+            final Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
+            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread t, Throwable e) {
+                    XposedBridge.log("PopowMods: UNCAUGHT EXCEPTION in thread " + t + ": " + android.util.Log.getStackTraceString(e));
+                    if (defaultHandler != null) {
+                        defaultHandler.uncaughtException(t, e);
+                    }
+                }
+            });
+
+            XposedHelpers.findAndHookMethod(
+                    Thread.class,
+                    "setDefaultUncaughtExceptionHandler",
+                    Thread.UncaughtExceptionHandler.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                            final Thread.UncaughtExceptionHandler original = (Thread.UncaughtExceptionHandler) param.args[0];
+                            if (original != null) {
+                                param.args[0] = new Thread.UncaughtExceptionHandler() {
+                                    @Override
+                                    public void uncaughtException(Thread t, Throwable e) {
+                                        XposedBridge.log("PopowMods: UNCAUGHT EXCEPTION intercepted in thread " + t + ": " + android.util.Log.getStackTraceString(e));
+                                        original.uncaughtException(t, e);
+                                    }
+                                };
+                            }
+                        }
+                    }
+            );
+        } catch (Throwable ignored) {}
+
+        // 0. Hook CarDisplay constructors and CREATOR
+        try {
+            Class<?> carDisplayClass = XposedHelpers.findClassIfExists(
+                    "com.google.android.gms.car.display.CarDisplay",
+                    lpparam.classLoader
+            );
+            if (carDisplayClass != null) {
+                XposedBridge.hookAllConstructors(carDisplayClass, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        // Signature: CarDisplay(CarDisplayId, int b, int c, Point d, Rect e, Rect j, List h, int f, String g, CarDisplayBlendedUiConfig i)
+                        if (param.args != null && param.args.length >= 3 && param.args[2] instanceof Integer) {
+                            int oldDpi = (Integer) param.args[2];
+                            param.args[2] = dpi;
+                            XposedBridge.log("PopowMods: CarDisplay constructor arg[2] (dpi): " + oldDpi + " -> " + dpi);
+                        }
+                    }
+
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        try {
+                            int oldDpi = XposedHelpers.getIntField(param.thisObject, "c");
+                            XposedHelpers.setIntField(param.thisObject, "c", dpi);
+                            XposedBridge.log("PopowMods: CarDisplay field 'c' set to: " + dpi + " (was " + oldDpi + ")");
+                        } catch (Throwable t) {
+                            XposedBridge.log("PopowMods: Error setting CarDisplay.c: " + t);
+                        }
+                    }
+                });
+
+                try {
+                    Field creatorField = XposedHelpers.findFieldIfExists(carDisplayClass, "CREATOR");
+                    if (creatorField != null) {
+                        Object creator = creatorField.get(null);
+                        if (creator != null) {
+                            XposedHelpers.findAndHookMethod(creator.getClass(), "createFromParcel", android.os.Parcel.class, new XC_MethodHook() {
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                                    if (!isAndroidAutoDpiEnabled()) return;
+                                    int dpi = getAndroidAutoDpi();
+                                    if (dpi <= 0) return;
+                                    Object carDisplay = param.getResult();
+                                    if (carDisplay != null) {
+                                        try {
+                                            int oldDpi = XposedHelpers.getIntField(carDisplay, "c");
+                                            XposedHelpers.setIntField(carDisplay, "c", dpi);
+                                            XposedBridge.log("PopowMods: CarDisplay CREATOR createFromParcel modified c: " + oldDpi + " -> " + dpi);
+                                        } catch (Throwable ignored) {
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } catch (Throwable t) {
+                    XposedBridge.log("PopowMods: Note: CarDisplay CREATOR hook: " + t);
+                }
+                XposedBridge.log("PopowMods: Successfully hooked CarDisplay");
+            }
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: Note: CarDisplay hook: " + t);
+        }
+
+        // Hook SurfaceContainer (androidx.car.app.SurfaceContainer)
+        try {
+            Class<?> surfaceContainerClass = XposedHelpers.findClassIfExists(
+                    "androidx.car.app.SurfaceContainer",
+                    lpparam.classLoader
+            );
+            if (surfaceContainerClass != null) {
+                XposedBridge.hookAllConstructors(surfaceContainerClass, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        try {
+                            XposedHelpers.setIntField(param.thisObject, "mDpi", dpi);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                });
+
+                XposedHelpers.findAndHookMethod(surfaceContainerClass, "getDpi", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi > 0) {
+                            param.setResult(dpi);
+                        }
+                    }
+                });
+                XposedBridge.log("PopowMods: Successfully hooked androidx.car.app.SurfaceContainer");
+            }
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: Note: SurfaceContainer hook: " + t);
+        }
+
+        // Hook VirtualDisplay.release() for diagnostics
+        try {
+            Class<?> vdClass = XposedHelpers.findClassIfExists("android.hardware.display.VirtualDisplay", lpparam.classLoader);
+            if (vdClass == null) {
+                vdClass = android.hardware.display.VirtualDisplay.class;
+            }
+            if (vdClass != null) {
+                XposedHelpers.findAndHookMethod(vdClass, "release", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        XposedBridge.log("PopowMods: VirtualDisplay.release() called on: " + param.thisObject
+                                + " Caller: " + android.util.Log.getStackTraceString(new Throwable()));
+                    }
+                });
+            }
+        } catch (Throwable ignored) {}
+
         // 1. Hook VirtualDisplayConfig.Builder constructors & build()
         try {
             Class<?> builderClass = XposedHelpers.findClassIfExists(
@@ -689,10 +896,15 @@ public class MainHook implements IXposedHookLoadPackage {
                         int dpi = getAndroidAutoDpi();
                         if (dpi <= 0) return;
                         // Signature: (String name, int width, int height, int densityDpi)
-                        if (param.args != null && param.args.length >= 4 && param.args[3] instanceof Integer) {
-                            int oldDpi = (Integer) param.args[3];
-                            param.args[3] = dpi;
-                            XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder constructor DPI modified: " + oldDpi + " -> " + dpi);
+                        if (param.args != null && param.args.length >= 4 && param.args[0] instanceof String && param.args[3] instanceof Integer) {
+                            String name = (String) param.args[0];
+                            if (isRootCarDisplay(name)) {
+                                int oldDpi = (Integer) param.args[3];
+                                param.args[3] = dpi;
+                                XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder constructor (" + name + ") DPI modified: " + oldDpi + " -> " + dpi);
+                            } else {
+                                XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder keeping default DPI for: " + name);
+                            }
                         }
                     }
 
@@ -702,7 +914,10 @@ public class MainHook implements IXposedHookLoadPackage {
                         int dpi = getAndroidAutoDpi();
                         if (dpi <= 0) return;
                         try {
-                            XposedHelpers.setIntField(param.thisObject, "mDensityDpi", dpi);
+                            String name = (String) XposedHelpers.getObjectField(param.thisObject, "mName");
+                            if (isRootCarDisplay(name)) {
+                                XposedHelpers.setIntField(param.thisObject, "mDensityDpi", dpi);
+                            }
                         } catch (Throwable ignored) {
                         }
                     }
@@ -715,7 +930,10 @@ public class MainHook implements IXposedHookLoadPackage {
                         int dpi = getAndroidAutoDpi();
                         if (dpi <= 0) return;
                         try {
-                            XposedHelpers.setIntField(param.thisObject, "mDensityDpi", dpi);
+                            String name = (String) XposedHelpers.getObjectField(param.thisObject, "mName");
+                            if (isRootCarDisplay(name)) {
+                                XposedHelpers.setIntField(param.thisObject, "mDensityDpi", dpi);
+                            }
                         } catch (Throwable ignored) {
                         }
                     }
@@ -728,9 +946,12 @@ public class MainHook implements IXposedHookLoadPackage {
                         Object config = param.getResult();
                         if (config != null) {
                             try {
-                                int oldDpi = XposedHelpers.getIntField(config, "mDensityDpi");
-                                XposedHelpers.setIntField(config, "mDensityDpi", dpi);
-                                XposedBridge.log("PopowMods: VirtualDisplayConfig.build() result mDensityDpi: " + oldDpi + " -> " + dpi);
+                                String name = (String) XposedHelpers.callMethod(config, "getName");
+                                if (isRootCarDisplay(name)) {
+                                    int oldDpi = XposedHelpers.getIntField(config, "mDensityDpi");
+                                    XposedHelpers.setIntField(config, "mDensityDpi", dpi);
+                                    XposedBridge.log("PopowMods: VirtualDisplayConfig.build() (" + name + ") result mDensityDpi: " + oldDpi + " -> " + dpi);
+                                }
                             } catch (Throwable t) {
                                 XposedBridge.log("PopowMods: Error setting mDensityDpi on build result: " + t);
                             }
@@ -758,8 +979,13 @@ public class MainHook implements IXposedHookLoadPackage {
                     protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                         if (!isAndroidAutoDpiEnabled()) return;
                         int dpi = getAndroidAutoDpi();
-                        if (dpi > 0) {
-                            param.setResult(dpi);
+                        if (dpi <= 0) return;
+                        try {
+                            String name = (String) XposedHelpers.callMethod(param.thisObject, "getName");
+                            if (isRootCarDisplay(name)) {
+                                param.setResult(dpi);
+                            }
+                        } catch (Throwable ignored) {
                         }
                     }
                 });
@@ -810,6 +1036,29 @@ public class MainHook implements IXposedHookLoadPackage {
         }
     }
 
+    private static boolean isRootCarDisplay(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        // Sub-displays to NEVER modify (modifying sub-displays crashes WindowManager Context attachment):
+        if (name.contains("GhostActivity")
+                || name.contains("/")
+                || name.contains("TemplateCarFragment")
+                || name.contains("Telemetry")
+                || name.contains("GhFacetBar")
+                || name.contains("Dashboard")
+                || name.contains("GhAppLauncher")
+                || name.contains("MediaService")) {
+            return false;
+        }
+        // Primary / root display names:
+        return name.contains("LayoutDisplay")
+                || name.contains("CAR.PROJECTION")
+                || name.contains("CarDisplay")
+                || name.equalsIgnoreCase("Car")
+                || name.contains("Projection");
+    }
+
     private static void applyCustomDpiToArgs(Object[] args, int customDpi) {
         if (args == null || args.length == 0 || customDpi <= 0) {
             return;
@@ -822,50 +1071,70 @@ public class MainHook implements IXposedHookLoadPackage {
             String className = arg.getClass().getName();
             if ("android.hardware.display.VirtualDisplayConfig".equals(className)) {
                 try {
+                    String name = (String) XposedHelpers.callMethod(arg, "getName");
+                    if (!isRootCarDisplay(name)) {
+                        continue;
+                    }
                     int oldDpi = XposedHelpers.getIntField(arg, "mDensityDpi");
                     if (oldDpi != customDpi) {
                         XposedHelpers.setIntField(arg, "mDensityDpi", customDpi);
-                        XposedBridge.log("PopowMods: VirtualDisplayConfig arg[" + i + "] mDensityDpi modified: " + oldDpi + " -> " + customDpi);
+                        XposedBridge.log("PopowMods: VirtualDisplayConfig (" + name + ") mDensityDpi modified: " + oldDpi + " -> " + customDpi);
                     }
                 } catch (Throwable t) {
                     XposedBridge.log("PopowMods: Error modifying VirtualDisplayConfig arg: " + t);
                 }
             } else if ("android.hardware.display.VirtualDisplayConfig$Builder".equals(className)) {
                 try {
+                    String name = (String) XposedHelpers.getObjectField(arg, "mName");
+                    if (!isRootCarDisplay(name)) {
+                        continue;
+                    }
                     int oldDpi = XposedHelpers.getIntField(arg, "mDensityDpi");
                     if (oldDpi != customDpi) {
                         XposedHelpers.setIntField(arg, "mDensityDpi", customDpi);
-                        XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder arg[" + i + "] mDensityDpi modified: " + oldDpi + " -> " + customDpi);
+                        XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder (" + name + ") mDensityDpi modified: " + oldDpi + " -> " + customDpi);
                     }
                 } catch (Throwable t) {
                     XposedBridge.log("PopowMods: Error modifying VirtualDisplayConfig.Builder arg: " + t);
+                }
+            } else if ("com.google.android.gms.car.display.CarDisplay".equals(className)) {
+                try {
+                    int oldDpi = XposedHelpers.getIntField(arg, "c");
+                    if (oldDpi != customDpi) {
+                        XposedHelpers.setIntField(arg, "c", customDpi);
+                        XposedBridge.log("PopowMods: CarDisplay arg[" + i + "] c modified: " + oldDpi + " -> " + customDpi);
+                    }
+                } catch (Throwable t) {
+                    XposedBridge.log("PopowMods: Error modifying CarDisplay arg: " + t);
                 }
             }
         }
 
         // Positional integer checks for createVirtualDisplay overloads:
-        // (int width, int height, int densityDpi, Surface surface, ...)
-        if (args.length >= 3 && args[0] instanceof Integer && args[1] instanceof Integer && args[2] instanceof Integer) {
-            int oldDpi = (Integer) args[2];
-            if (oldDpi != customDpi) {
-                args[2] = customDpi;
-                XposedBridge.log("PopowMods: createVirtualDisplay(w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
-            }
-        }
         // (String name, int width, int height, int densityDpi, ...)
-        else if (args.length >= 4 && args[0] instanceof String && args[1] instanceof Integer && args[2] instanceof Integer && args[3] instanceof Integer) {
-            int oldDpi = (Integer) args[3];
-            if (oldDpi != customDpi) {
-                args[3] = customDpi;
-                XposedBridge.log("PopowMods: createVirtualDisplay(name, w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+        if (args.length >= 4 && args[0] instanceof String && args[1] instanceof Integer && args[2] instanceof Integer && args[3] instanceof Integer) {
+            String name = (String) args[0];
+            if (isRootCarDisplay(name)) {
+                int oldDpi = (Integer) args[3];
+                if (oldDpi != customDpi) {
+                    args[3] = customDpi;
+                    XposedBridge.log("PopowMods: createVirtualDisplay(" + name + ", w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+                }
+            } else {
+                XposedBridge.log("PopowMods: Skipping non-root display in createVirtualDisplay: " + name);
             }
         }
         // (MediaProjection, String name, int width, int height, int densityDpi, ...)
         else if (args.length >= 5 && args[1] instanceof String && args[2] instanceof Integer && args[3] instanceof Integer && args[4] instanceof Integer) {
-            int oldDpi = (Integer) args[4];
-            if (oldDpi != customDpi) {
-                args[4] = customDpi;
-                XposedBridge.log("PopowMods: createVirtualDisplay(MP, name, w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+            String name = (String) args[1];
+            if (isRootCarDisplay(name)) {
+                int oldDpi = (Integer) args[4];
+                if (oldDpi != customDpi) {
+                    args[4] = customDpi;
+                    XposedBridge.log("PopowMods: createVirtualDisplay(MP, " + name + ", w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+                }
+            } else {
+                XposedBridge.log("PopowMods: Skipping non-root display in createVirtualDisplay(MP): " + name);
             }
         }
     }
