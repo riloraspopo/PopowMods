@@ -76,12 +76,12 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 1. Buka aplikasi **LSPosed** / **Vector Manager**.
 2. Masuk ke tab **Modules** dan aktifkan switch toggle untuk **Popow Mods**.
-3. Pastikan scope berikut tercentang:
+3. Pastikan scope berikut tercentang sesuai fitur yang digunakan:
    - `System UI` (`com.android.systemui`)
    - `Nexus Launcher` / `Launcher3` (`com.google.android.apps.nexuslauncher` / `com.android.launcher3`)
+   - `Android Auto` (`com.google.android.projection.gearhead`)
 4. Buka aplikasi **Popow Mods**:
    - Berikan izin root saat diminta.
-   - Pada kartu **Pengaturan Interval Net Speed**, pilih preset (misal `500ms`) atau ketik angka kustom (misal `500` atau `0.5`).
-   - Tekan tombol **💾 Simpan Interval**.
-   - Tekan tombol **⚡ Restart System UI** untuk memastikan seluruh hook aktif dengan optimal.
+   - **Net Speed**: Atur interval (misal `500ms`), tekan Simpan, lalu tekan **⚡ Restart System UI**.
+   - **Android Auto DPI**: Pilih preset DPI (misal `140` atau `130`) untuk mengaktifkan split-screen Coolwalk, tekan Simpan, lalu sambungkan kembali HP ke head unit mobil (atau tekan **🚗 Restart Android Auto**).
 

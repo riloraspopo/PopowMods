@@ -37,15 +37,26 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String SYSTEMUI_PKG = "com.android.systemui";
     private static final String LAUNCHER_NEXUS_PKG = "com.google.android.apps.nexuslauncher";
     private static final String LAUNCHER_AOSP_PKG = "com.android.launcher3";
+    private static final String GEARHEAD_PKG = "com.google.android.projection.gearhead";
 
     private static final String ACTION_SLEEP = "com.popow.popowmods.ACTION_SLEEP";
     private static final String ACTION_UPDATE_INTERVAL = "com.popow.popowmods.ACTION_UPDATE_INTERVAL";
     private static final String EXTRA_INTERVAL_MS = "interval_ms";
     private static final String PROP_NETWORK_INTERVAL_MS = "persist.popowmods.net_interval_ms";
+    private static final String PROP_AA_DPI = "persist.sys.popow_aa_dpi";
+    private static final String PROP_AA_DPI_ENABLED = "persist.sys.popow_aa_enabled";
+    private static final String PROP_AA_DPI_LEGACY = "persist.popowmods.aa_dpi";
+    private static final String PROP_AA_DPI_ENABLED_LEGACY = "persist.popowmods.aa_dpi_enabled";
+    private static final String PROP_PIN_ENABLED = "persist.popowmods.pin_enabled";
+    private static final String PROP_DT2S_ENABLED = "persist.popowmods.dt2s_enabled";
+    private static final String PROP_NET_TRAFFIC_ENABLED = "persist.popowmods.net_traffic_enabled";
 
     private static final int DEFAULT_NETWORK_INTERVAL_MS = 2000;
     private static final int MIN_NETWORK_INTERVAL_MS = 200;
     private static final int MAX_NETWORK_INTERVAL_MS = 60000;
+
+    private static final int MIN_AA_DPI = 90;
+    private static final int MAX_AA_DPI = 360;
 
     private static final String KEYGUARD_PIN_VIEW_CONTROLLER = "com.android.keyguard.KeyguardPinViewController";
     private static final String WORKSPACE_TOUCH_LISTENER = "com.android.launcher3.touch.WorkspaceTouchListener";
@@ -59,6 +70,8 @@ public class MainHook implements IXposedHookLoadPackage {
             hookSystemUI(lpparam);
         } else if (LAUNCHER_NEXUS_PKG.equals(lpparam.packageName) || LAUNCHER_AOSP_PKG.equals(lpparam.packageName)) {
             hookLauncher(lpparam);
+        } else if (GEARHEAD_PKG.equals(lpparam.packageName)) {
+            hookAndroidAuto(lpparam);
         }
     }
 
@@ -93,6 +106,9 @@ public class MainHook implements IXposedHookLoadPackage {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                            if (!isPinAutoConfirmEnabled()) {
+                                return;
+                            }
                             Object passwordEntry = XposedHelpers.getObjectField(param.thisObject, "mPasswordEntry");
                             if (passwordEntry == null) {
                                 return;
@@ -204,6 +220,9 @@ public class MainHook implements IXposedHookLoadPackage {
                         new XC_MethodHook() {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                                if (!isNetworkTrafficEnabled()) {
+                                    return;
+                                }
                                 try {
                                     handleRecalculateStats(param);
                                     param.setResult(null); // Bypass hardcoded 2000ms check
@@ -366,6 +385,9 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     private void handleNetworkTrafficDisplay(XC_MethodHook.MethodHookParam param) {
+        if (!isNetworkTrafficEnabled()) {
+            return;
+        }
         try {
             if (param.thisObject instanceof Handler) {
                 sLastTrafficHandler = new WeakReference<>((Handler) param.thisObject);
@@ -426,6 +448,9 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     private void rescheduleIfNeeded(Object handlerObj) {
+        if (!isNetworkTrafficEnabled()) {
+            return;
+        }
         if (handlerObj instanceof Handler) {
             Handler handler = (Handler) handlerObj;
             if (handler.hasMessages(0 /* MESSAGE_TYPE_PERIODIC_REFRESH */)) {
@@ -472,6 +497,9 @@ public class MainHook implements IXposedHookLoadPackage {
             BroadcastReceiver receiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context ctx, Intent intent) {
+                    if (!isNetworkTrafficEnabled()) {
+                        return;
+                    }
                     try {
                         int newInterval = intent.getIntExtra(EXTRA_INTERVAL_MS, -1);
                         if (newInterval >= MIN_NETWORK_INTERVAL_MS && newInterval <= MAX_NETWORK_INTERVAL_MS) {
@@ -553,6 +581,9 @@ public class MainHook implements IXposedHookLoadPackage {
             BroadcastReceiver receiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context ctx, Intent intent) {
+                    if (!isDt2sEnabled()) {
+                        return;
+                    }
                     try {
                         PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
                         if (pm != null) {
@@ -600,6 +631,9 @@ public class MainHook implements IXposedHookLoadPackage {
                             gd.setOnDoubleTapListener(new GestureDetector.SimpleOnGestureListener() {
                                 @Override
                                 public boolean onDoubleTap(MotionEvent e) {
+                                    if (!isDt2sEnabled()) {
+                                        return false;
+                                    }
                                     try {
                                         Context launcher = (Context) XposedHelpers.getObjectField(param.thisObject, "mLauncher");
                                         if (launcher != null) {
@@ -630,5 +664,261 @@ public class MainHook implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             XposedBridge.log("PopowMods: Failed to hook WorkspaceTouchListener: " + t);
         }
+    }
+
+    private void hookAndroidAuto(final XC_LoadPackage.LoadPackageParam lpparam) {
+        boolean enabled = isAndroidAutoDpiEnabled();
+        int customDpi = getAndroidAutoDpi();
+        XposedBridge.log("PopowMods: Initializing Android Auto hooks for " + lpparam.packageName
+                + " (enabled=" + enabled + ", dpi=" + customDpi + ")");
+
+        // 1. Hook VirtualDisplayConfig.Builder constructors & build()
+        try {
+            Class<?> builderClass = XposedHelpers.findClassIfExists(
+                    "android.hardware.display.VirtualDisplayConfig$Builder",
+                    lpparam.classLoader
+            );
+            if (builderClass == null) {
+                builderClass = android.hardware.display.VirtualDisplayConfig.Builder.class;
+            }
+            if (builderClass != null) {
+                XposedBridge.hookAllConstructors(builderClass, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        // Signature: (String name, int width, int height, int densityDpi)
+                        if (param.args != null && param.args.length >= 4 && param.args[3] instanceof Integer) {
+                            int oldDpi = (Integer) param.args[3];
+                            param.args[3] = dpi;
+                            XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder constructor DPI modified: " + oldDpi + " -> " + dpi);
+                        }
+                    }
+
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        try {
+                            XposedHelpers.setIntField(param.thisObject, "mDensityDpi", dpi);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                });
+
+                XposedHelpers.findAndHookMethod(builderClass, "build", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        try {
+                            XposedHelpers.setIntField(param.thisObject, "mDensityDpi", dpi);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi <= 0) return;
+                        Object config = param.getResult();
+                        if (config != null) {
+                            try {
+                                int oldDpi = XposedHelpers.getIntField(config, "mDensityDpi");
+                                XposedHelpers.setIntField(config, "mDensityDpi", dpi);
+                                XposedBridge.log("PopowMods: VirtualDisplayConfig.build() result mDensityDpi: " + oldDpi + " -> " + dpi);
+                            } catch (Throwable t) {
+                                XposedBridge.log("PopowMods: Error setting mDensityDpi on build result: " + t);
+                            }
+                        }
+                    }
+                });
+                XposedBridge.log("PopowMods: Successfully hooked VirtualDisplayConfig.Builder");
+            }
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: Note: VirtualDisplayConfig.Builder hook: " + t);
+        }
+
+        // 2. Hook VirtualDisplayConfig.getDensityDpi()
+        try {
+            Class<?> configClass = XposedHelpers.findClassIfExists(
+                    "android.hardware.display.VirtualDisplayConfig",
+                    lpparam.classLoader
+            );
+            if (configClass == null) {
+                configClass = android.hardware.display.VirtualDisplayConfig.class;
+            }
+            if (configClass != null) {
+                XposedHelpers.findAndHookMethod(configClass, "getDensityDpi", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        if (!isAndroidAutoDpiEnabled()) return;
+                        int dpi = getAndroidAutoDpi();
+                        if (dpi > 0) {
+                            param.setResult(dpi);
+                        }
+                    }
+                });
+                XposedBridge.log("PopowMods: Successfully hooked VirtualDisplayConfig.getDensityDpi");
+            }
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: Note: VirtualDisplayConfig.getDensityDpi hook: " + t);
+        }
+
+        // 3. Hook all createVirtualDisplay overloads across display and virtual device managers
+        XC_MethodHook virtualDisplayHook = new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                if (!isAndroidAutoDpiEnabled()) {
+                    return;
+                }
+                int dpi = getAndroidAutoDpi();
+                if (dpi <= 0) {
+                    return;
+                }
+                applyCustomDpiToArgs(param.args, dpi);
+            }
+        };
+
+        String[] displayCreators = new String[] {
+            "android.hardware.display.DisplayManager",
+            "android.hardware.display.DisplayManagerGlobal",
+            "android.companion.virtual.VirtualDeviceManager$VirtualDevice",
+            "android.companion.virtual.VirtualDevice",
+            "android.companion.virtual.VirtualDeviceInternal",
+            "android.companion.virtual.IVirtualDevice$Stub$Proxy",
+            "android.media.projection.MediaProjection"
+        };
+
+        for (String creatorName : displayCreators) {
+            try {
+                Class<?> clazz = XposedHelpers.findClassIfExists(creatorName, lpparam.classLoader);
+                if (clazz == null) {
+                    clazz = XposedHelpers.findClassIfExists(creatorName, ClassLoader.getSystemClassLoader());
+                }
+                if (clazz != null) {
+                    XposedBridge.hookAllMethods(clazz, "createVirtualDisplay", virtualDisplayHook);
+                    XposedBridge.log("PopowMods: Hooked createVirtualDisplay on " + creatorName);
+                }
+            } catch (Throwable t) {
+                XposedBridge.log("PopowMods: Note: " + creatorName + " hook error: " + t);
+            }
+        }
+    }
+
+    private static void applyCustomDpiToArgs(Object[] args, int customDpi) {
+        if (args == null || args.length == 0 || customDpi <= 0) {
+            return;
+        }
+
+        for (int i = 0; i < args.length; i++) {
+            Object arg = args[i];
+            if (arg == null) continue;
+
+            String className = arg.getClass().getName();
+            if ("android.hardware.display.VirtualDisplayConfig".equals(className)) {
+                try {
+                    int oldDpi = XposedHelpers.getIntField(arg, "mDensityDpi");
+                    if (oldDpi != customDpi) {
+                        XposedHelpers.setIntField(arg, "mDensityDpi", customDpi);
+                        XposedBridge.log("PopowMods: VirtualDisplayConfig arg[" + i + "] mDensityDpi modified: " + oldDpi + " -> " + customDpi);
+                    }
+                } catch (Throwable t) {
+                    XposedBridge.log("PopowMods: Error modifying VirtualDisplayConfig arg: " + t);
+                }
+            } else if ("android.hardware.display.VirtualDisplayConfig$Builder".equals(className)) {
+                try {
+                    int oldDpi = XposedHelpers.getIntField(arg, "mDensityDpi");
+                    if (oldDpi != customDpi) {
+                        XposedHelpers.setIntField(arg, "mDensityDpi", customDpi);
+                        XposedBridge.log("PopowMods: VirtualDisplayConfig.Builder arg[" + i + "] mDensityDpi modified: " + oldDpi + " -> " + customDpi);
+                    }
+                } catch (Throwable t) {
+                    XposedBridge.log("PopowMods: Error modifying VirtualDisplayConfig.Builder arg: " + t);
+                }
+            }
+        }
+
+        // Positional integer checks for createVirtualDisplay overloads:
+        // (int width, int height, int densityDpi, Surface surface, ...)
+        if (args.length >= 3 && args[0] instanceof Integer && args[1] instanceof Integer && args[2] instanceof Integer) {
+            int oldDpi = (Integer) args[2];
+            if (oldDpi != customDpi) {
+                args[2] = customDpi;
+                XposedBridge.log("PopowMods: createVirtualDisplay(w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+            }
+        }
+        // (String name, int width, int height, int densityDpi, ...)
+        else if (args.length >= 4 && args[0] instanceof String && args[1] instanceof Integer && args[2] instanceof Integer && args[3] instanceof Integer) {
+            int oldDpi = (Integer) args[3];
+            if (oldDpi != customDpi) {
+                args[3] = customDpi;
+                XposedBridge.log("PopowMods: createVirtualDisplay(name, w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+            }
+        }
+        // (MediaProjection, String name, int width, int height, int densityDpi, ...)
+        else if (args.length >= 5 && args[1] instanceof String && args[2] instanceof Integer && args[3] instanceof Integer && args[4] instanceof Integer) {
+            int oldDpi = (Integer) args[4];
+            if (oldDpi != customDpi) {
+                args[4] = customDpi;
+                XposedBridge.log("PopowMods: createVirtualDisplay(MP, name, w, h, dpi) modified: " + oldDpi + " -> " + customDpi);
+            }
+        }
+    }
+
+    private static int getAndroidAutoDpi() {
+        try {
+            Class<?> spClass = Class.forName("android.os.SystemProperties");
+            String val = (String) XposedHelpers.callStaticMethod(spClass, "get", PROP_AA_DPI, "");
+            if (val == null || val.trim().isEmpty()) {
+                val = (String) XposedHelpers.callStaticMethod(spClass, "get", PROP_AA_DPI_LEGACY, "0");
+            }
+            if (val != null && !val.trim().isEmpty()) {
+                int dpi = Integer.parseInt(val.trim());
+                if (dpi >= MIN_AA_DPI && dpi <= MAX_AA_DPI) {
+                    return dpi;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0; // 0 = disabled / default car DPI
+    }
+
+    private static boolean isPropEnabled(String propName, boolean defaultValue) {
+        try {
+            Class<?> spClass = Class.forName("android.os.SystemProperties");
+            String val = (String) XposedHelpers.callStaticMethod(spClass, "get", propName, defaultValue ? "1" : "0");
+            if (val != null) {
+                val = val.trim();
+                if ("1".equals(val) || "true".equalsIgnoreCase(val)) {
+                    return true;
+                }
+                if ("0".equals(val) || "false".equalsIgnoreCase(val)) {
+                    return false;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return defaultValue;
+    }
+
+    private static boolean isPinAutoConfirmEnabled() {
+        return isPropEnabled(PROP_PIN_ENABLED, true);
+    }
+
+    private static boolean isDt2sEnabled() {
+        return isPropEnabled(PROP_DT2S_ENABLED, true);
+    }
+
+    private static boolean isNetworkTrafficEnabled() {
+        return isPropEnabled(PROP_NET_TRAFFIC_ENABLED, true);
+    }
+
+    private static boolean isAndroidAutoDpiEnabled() {
+        return isPropEnabled(PROP_AA_DPI_ENABLED, false) || isPropEnabled(PROP_AA_DPI_ENABLED_LEGACY, false);
     }
 }

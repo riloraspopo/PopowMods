@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Popow Mods</string>
-    <string name="app_version">v1.3 • Xposed Module</string>
+    <string name="app_version">v1.4 • Xposed Module</string>
     <string name="status_title">Status Modul</string>
-    <string name="status_scope">Scope: System UI, Nexus/Pixel Launcher</string>
+    <string name="status_scope">Scope: System UI, Launcher, Android Auto</string>
     <string name="status_badge">Active Hooks</string>
     
     <string name="actions_title">Aksi Cepat (Akses Root)</string>
     <string name="actions_desc">Terapkan perubahan modul secara langsung tanpa perlu reboot seluruh sistem.</string>
     <string name="btn_restart_systemui">⚡ Restart System UI</string>
     <string name="btn_restart_launcher">🏠 Restart Launcher</string>
+    <string name="btn_restart_aa">🚗 Restart Android Auto</string>
     <string name="btn_restart_all">🔄 Restart Semua (SystemUI &amp; Launcher)</string>
 
     <string name="network_settings_title">Pengaturan Interval Net Speed</string>
@@ -17,18 +18,26 @@
     <string name="network_settings_hint">Contoh: 500 (ms) atau 0.5 (detik)</string>
     <string name="btn_save_network_interval">💾 Simpan Interval</string>
 
+    <string name="aa_dpi_title">Pengaturan DPI Android Auto</string>
+    <string name="aa_dpi_desc">Turunkan DPI layar head unit mobil agar tampilan Android Auto lebih luas dan memicu split-screen Coolwalk (Peta + Media berdampingan). Rekomendasi: 130–160 DPI. Masukkan 0 untuk default.</string>
+    <string name="aa_dpi_hint">Contoh: 140 (0 = default mobil)</string>
+    <string name="btn_save_aa_dpi">💾 Simpan DPI Android Auto</string>
+
     <string name="feature_title">Fungsi &amp; Fitur</string>
+    <string name="feature_subtitle">Aktifkan atau nonaktifkan modul per fitur sesuai kebutuhan.</string>
     <string name="feature_1_name">Auto Confirm PIN (4 Digit)</string>
     <string name="feature_1_desc">Otomatis memverifikasi dan membuka layar kunci (Keyguard) saat 4 digit PIN selesai ditekan tanpa perlu menekan tombol centang / Enter secara manual.</string>
     <string name="feature_2_name">Double Tap to Sleep (Home Screen)</string>
     <string name="feature_2_desc">Ketuk dua kali (double tap) pada area kosong di layar utama (Home Screen) untuk mematikan layar dan mengunci perangkat seketika.</string>
     <string name="feature_3_name">Dual-Line Network Traffic Monitor (▲ / ▼)</string>
-    <string name="feature_3_desc">Memisahkan indikator kecepatan internet di status bar menjadi 2 baris terpisah: Upload di baris atas (▲) dan Download di baris bawah (▼) beserta indikator panah.</string>
+    <string name="feature_3_desc">Memisahkan indikator kecepatan internet di status bar menjadi 2 baris terpisah: Upload di baris atas (▲) dan Download di baris bawah (▼) beserta indikator panah dan interval sub-detik yang halus.</string>
+    <string name="feature_4_name">Android Auto Custom DPI (Coolwalk Split-Screen)</string>
+    <string name="feature_4_desc">Menurunkan DPI layar virtual head unit Android Auto agar tampilan lebih lega, proporsional, dan membuka mode split-screen dashboard.</string>
     
     <string name="guide_title">Petunjuk Penggunaan</string>
     <string name="guide_step1">1. Buka aplikasi LSPosed / Vector Manager.</string>
     <string name="guide_step2">2. Aktifkan toggle modul \"Popow Mods\".</string>
-    <string name="guide_step3">3. Pastikan scope \"System UI\" dan \"Nexus/Pixel Launcher\" tercentang.</string>
+    <string name="guide_step3">3. Pastikan scope \"System UI\", \"Launcher\", dan \"Android Auto\" tercentang sesuai kebutuhan.</string>
     <string name="guide_step4">4. Berikan izin root ke Popow Mods dan gunakan tombol aksi cepat di bawah untuk restart aplikasi terkait tanpa reboot.</string>
     <string name="footer_text">Dibuat khusus untuk ROM AOSP / LineageOS</string>
 </resources>

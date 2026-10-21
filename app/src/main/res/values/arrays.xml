@@ -4,5 +4,6 @@
         <item>com.android.systemui</item>
         <item>com.google.android.apps.nexuslauncher</item>
         <item>com.android.launcher3</item>
+        <item>com.google.android.projection.gearhead</item>
     </string-array>
 </resources>
