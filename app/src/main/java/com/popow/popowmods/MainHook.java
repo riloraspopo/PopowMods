@@ -4,7 +4,10 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.LinkProperties;
+import android.net.TrafficStats;
 import android.os.Build;
+import android.os.Handler;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.GestureDetector;
@@ -14,7 +17,11 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.TextView;
 
+import java.lang.ref.WeakReference;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -29,8 +36,19 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String LAUNCHER_AOSP_PKG = "com.android.launcher3";
 
     private static final String ACTION_SLEEP = "com.popow.popowmods.ACTION_SLEEP";
+    private static final String ACTION_UPDATE_INTERVAL = "com.popow.popowmods.ACTION_UPDATE_INTERVAL";
+    private static final String EXTRA_INTERVAL_MS = "interval_ms";
+    private static final String PROP_NETWORK_INTERVAL_MS = "persist.popowmods.net_interval_ms";
+
+    private static final int DEFAULT_NETWORK_INTERVAL_MS = 2000;
+    private static final int MIN_NETWORK_INTERVAL_MS = 200;
+    private static final int MAX_NETWORK_INTERVAL_MS = 60000;
+
     private static final String KEYGUARD_PIN_VIEW_CONTROLLER = "com.android.keyguard.KeyguardPinViewController";
     private static final String WORKSPACE_TOUCH_LISTENER = "com.android.launcher3.touch.WorkspaceTouchListener";
+
+    private static volatile int sCachedNetworkIntervalMs = -1;
+    private static WeakReference<Handler> sLastTrafficHandler = null;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
@@ -44,7 +62,7 @@ public class MainHook implements IXposedHookLoadPackage {
     private void hookSystemUI(final XC_LoadPackage.LoadPackageParam lpparam) {
         XposedBridge.log("PopowMods: Initializing SystemUI hooks");
 
-        // 1. Hook SystemUIApplication.onCreate to register sleep broadcast receiver
+        // 1. Hook SystemUIApplication.onCreate to register broadcast receivers
         try {
             XposedHelpers.findAndHookMethod(
                     "com.android.systemui.SystemUIApplication",
@@ -55,6 +73,7 @@ public class MainHook implements IXposedHookLoadPackage {
                         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                             Context context = (Context) param.thisObject;
                             registerSleepReceiver(context);
+                            registerIntervalReceiver(context);
                         }
                     }
             );
@@ -100,64 +119,202 @@ public class MainHook implements IXposedHookLoadPackage {
             XposedBridge.log("PopowMods: KeyguardPinViewController hook error: " + t);
         }
 
-        // 3. Hook NetworkTraffic for separate upload (top) and download (bottom) with arrows
+        // 3. Hook NetworkTraffic for separate upload/download arrows and configurable update interval
         hookNetworkTraffic(lpparam.classLoader);
     }
 
     private void hookNetworkTraffic(ClassLoader classLoader) {
-        String[] targetClasses = new String[] {
-            "com.android.internal.statusbar.NetworkTraffic$1",
-            "com.libremobileos.statusbar.NetworkTraffic$3"
+        Set<String> targetClasses = new LinkedHashSet<>();
+        targetClasses.add("com.android.internal.statusbar.NetworkTraffic$1");
+        targetClasses.add("com.libremobileos.statusbar.NetworkTraffic$3");
+
+        String[] parentClasses = new String[] {
+            "com.android.internal.statusbar.NetworkTraffic",
+            "com.libremobileos.statusbar.NetworkTraffic",
+            "com.android.systemui.statusbar.NetworkTraffic"
         };
 
+        for (String parentName : parentClasses) {
+            try {
+                Class<?> parentClass = XposedHelpers.findClassIfExists(parentName, classLoader);
+                if (parentClass == null) {
+                    parentClass = XposedHelpers.findClassIfExists(parentName, ClassLoader.getSystemClassLoader());
+                }
+                if (parentClass != null) {
+                    for (Class<?> inner : parentClass.getDeclaredClasses()) {
+                        targetClasses.add(inner.getName());
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
         for (String targetClass : targetClasses) {
-            boolean hooked = false;
+            hookTargetClass(targetClass, classLoader);
+        }
+    }
+
+    private void hookTargetClass(String targetClass, ClassLoader classLoader) {
+        Class<?> clazz = XposedHelpers.findClassIfExists(targetClass, classLoader);
+        if (clazz == null) {
+            clazz = XposedHelpers.findClassIfExists(targetClass, ClassLoader.getSystemClassLoader());
+        }
+        if (clazz == null) {
+            return;
+        }
+
+        boolean hasDisplayMethod = false;
+        boolean hasRecalculateMethod = false;
+        for (java.lang.reflect.Method m : clazz.getDeclaredMethods()) {
+            if ("displayStatsAndReschedule".equals(m.getName())) {
+                hasDisplayMethod = true;
+            } else if ("recalculateStats".equals(m.getName())) {
+                hasRecalculateMethod = true;
+            }
+        }
+
+        if (!hasDisplayMethod) {
+            return;
+        }
+
+        try {
+            XposedHelpers.findAndHookMethod(
+                    clazz,
+                    "displayStatsAndReschedule",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                            handleNetworkTrafficDisplay(param);
+                        }
+                    }
+            );
+            XposedBridge.log("PopowMods: Successfully hooked " + targetClass + ".displayStatsAndReschedule");
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: Note: " + targetClass + " displayStatsAndReschedule not hooked: " + t.getMessage());
+        }
+
+        if (hasRecalculateMethod) {
             try {
                 XposedHelpers.findAndHookMethod(
-                        targetClass,
-                        classLoader,
-                        "displayStatsAndReschedule",
+                        clazz,
+                        "recalculateStats",
                         new XC_MethodHook() {
                             @Override
-                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                handleNetworkTrafficDisplay(param);
+                            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                                try {
+                                    handleRecalculateStats(param);
+                                    param.setResult(null); // Bypass hardcoded 2000ms check
+                                } catch (Throwable t) {
+                                    XposedBridge.log("PopowMods: handleRecalculateStats failed, letting original run: " + t);
+                                }
                             }
                         }
                 );
-                XposedBridge.log("PopowMods: Successfully hooked " + targetClass + ".displayStatsAndReschedule");
-                hooked = true;
+                XposedBridge.log("PopowMods: Successfully hooked " + targetClass + ".recalculateStats");
             } catch (Throwable t) {
-                // Try fallback with system classloader
-                try {
-                    XposedHelpers.findAndHookMethod(
-                            targetClass,
-                            ClassLoader.getSystemClassLoader(),
-                            "displayStatsAndReschedule",
-                            new XC_MethodHook() {
-                                @Override
-                                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                    handleNetworkTrafficDisplay(param);
-                                }
-                            }
-                    );
-                    XposedBridge.log("PopowMods: Successfully hooked " + targetClass + ".displayStatsAndReschedule via SystemClassLoader");
-                    hooked = true;
-                } catch (Throwable t2) {
-                    XposedBridge.log("PopowMods: Note: " + targetClass + " not hooked: " + t2.getMessage());
-                }
+                XposedBridge.log("PopowMods: Note: " + targetClass + " recalculateStats not hooked: " + t.getMessage());
             }
         }
     }
 
+    private void handleRecalculateStats(XC_MethodHook.MethodHookParam param) {
+        TextView trafficView = (TextView) XposedHelpers.getObjectField(param.thisObject, "this$0");
+        if (trafficView == null) {
+            return;
+        }
+
+        int intervalMs = getNetworkIntervalMs();
+        long now = SystemClock.elapsedRealtime();
+        long lastUpdateTime = XposedHelpers.getLongField(trafficView, "mLastUpdateTime");
+        long timeDelta = now - lastUpdateTime;
+
+        if (timeDelta < (long) (intervalMs * 0.95f)) {
+            return;
+        }
+
+        long txBytes = 0;
+        long rxBytes = 0;
+        boolean gotInterfaceStats = false;
+
+        try {
+            Map<?, ?> linkMap = (Map<?, ?>) XposedHelpers.getObjectField(trafficView, "mLinkPropertiesMap");
+            if (linkMap != null && !linkMap.isEmpty()) {
+                for (Object item : linkMap.values()) {
+                    if (item instanceof LinkProperties) {
+                        String iface = ((LinkProperties) item).getInterfaceName();
+                        if (iface != null) {
+                            long ifaceTx = TrafficStats.getTxBytes(iface);
+                            long ifaceRx = TrafficStats.getRxBytes(iface);
+                            if (ifaceTx > 0) txBytes += ifaceTx;
+                            if (ifaceRx > 0) rxBytes += ifaceRx;
+
+                            long clatTx = TrafficStats.getTxBytes("v4-" + iface);
+                            long clatRx = TrafficStats.getRxBytes("v4-" + iface);
+                            if (clatTx > 0) txBytes += clatTx;
+                            if (clatRx > 0) rxBytes += clatRx;
+                            gotInterfaceStats = true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        if (!gotInterfaceStats || (txBytes == 0 && rxBytes == 0)) {
+            long totalTx = TrafficStats.getTotalTxBytes();
+            long totalRx = TrafficStats.getTotalRxBytes();
+            if (totalTx != TrafficStats.UNSUPPORTED && totalRx != TrafficStats.UNSUPPORTED) {
+                txBytes = totalTx;
+                rxBytes = totalRx;
+            }
+        }
+
+        long lastTxBytes = XposedHelpers.getLongField(trafficView, "mLastTxBytes");
+        long lastRxBytes = XposedHelpers.getLongField(trafficView, "mLastRxBytes");
+
+        boolean networksChanged = false;
+        try {
+            networksChanged = XposedHelpers.getBooleanField(trafficView, "mNetworksChanged");
+        } catch (Throwable ignored) {
+        }
+
+        long txBytesDelta = txBytes - lastTxBytes;
+        long rxBytesDelta = rxBytes - lastRxBytes;
+
+        if (!networksChanged && timeDelta > 0 && txBytesDelta >= 0 && rxBytesDelta >= 0) {
+            long txKbps = (long) (txBytesDelta * 8f / 1000f / (timeDelta / 1000f));
+            long rxKbps = (long) (rxBytesDelta * 8f / 1000f / (timeDelta / 1000f));
+            XposedHelpers.setLongField(trafficView, "mTxKbps", txKbps);
+            XposedHelpers.setLongField(trafficView, "mRxKbps", rxKbps);
+        } else if (networksChanged) {
+            XposedHelpers.setLongField(trafficView, "mTxKbps", 0L);
+            XposedHelpers.setLongField(trafficView, "mRxKbps", 0L);
+            try {
+                XposedHelpers.setBooleanField(trafficView, "mNetworksChanged", false);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        XposedHelpers.setLongField(trafficView, "mLastTxBytes", txBytes);
+        XposedHelpers.setLongField(trafficView, "mLastRxBytes", rxBytes);
+        XposedHelpers.setLongField(trafficView, "mLastUpdateTime", now);
+    }
+
     private void handleNetworkTrafficDisplay(XC_MethodHook.MethodHookParam param) {
         try {
+            if (param.thisObject instanceof Handler) {
+                sLastTrafficHandler = new WeakReference<>((Handler) param.thisObject);
+            }
+
             TextView trafficView = (TextView) XposedHelpers.getObjectField(param.thisObject, "this$0");
             if (trafficView == null || trafficView.getVisibility() != View.VISIBLE) {
+                rescheduleIfNeeded(param.thisObject);
                 return;
             }
 
             int mode = XposedHelpers.getIntField(trafficView, "mMode");
             if (mode == 0) {
+                rescheduleIfNeeded(param.thisObject);
                 return;
             }
 
@@ -185,6 +342,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 ss.setSpan(new android.text.style.RelativeSizeSpan(1.25f), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 resultText = ss;
             } else {
+                rescheduleIfNeeded(param.thisObject);
                 return;
             }
 
@@ -195,8 +353,88 @@ public class MainHook implements IXposedHookLoadPackage {
             trafficView.setIncludeFontPadding(false);
             trafficView.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             trafficView.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);
+
+            rescheduleIfNeeded(param.thisObject);
         } catch (Throwable t) {
             XposedBridge.log("PopowMods: handleNetworkTrafficDisplay error: " + t);
+        }
+    }
+
+    private void rescheduleIfNeeded(Object handlerObj) {
+        if (handlerObj instanceof Handler) {
+            Handler handler = (Handler) handlerObj;
+            if (handler.hasMessages(0 /* MESSAGE_TYPE_PERIODIC_REFRESH */)) {
+                int intervalMs = getNetworkIntervalMs();
+                handler.removeMessages(0);
+                handler.sendEmptyMessageDelayed(0, intervalMs);
+            }
+        }
+    }
+
+    private static int getNetworkIntervalMs() {
+        int interval = sCachedNetworkIntervalMs;
+        if (interval > 0) {
+            return interval;
+        }
+        interval = readSystemPropertyIntervalMs();
+        sCachedNetworkIntervalMs = interval;
+        return interval;
+    }
+
+    private static int readSystemPropertyIntervalMs() {
+        try {
+            Class<?> spClass = Class.forName("android.os.SystemProperties");
+            String value = (String) XposedHelpers.callStaticMethod(
+                    spClass,
+                    "get",
+                    PROP_NETWORK_INTERVAL_MS,
+                    ""
+            );
+            if (value != null && !value.isEmpty()) {
+                int parsed = Integer.parseInt(value.trim());
+                if (parsed >= MIN_NETWORK_INTERVAL_MS && parsed <= MAX_NETWORK_INTERVAL_MS) {
+                    return parsed;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return DEFAULT_NETWORK_INTERVAL_MS;
+    }
+
+    private void registerIntervalReceiver(Context context) {
+        try {
+            IntentFilter filter = new IntentFilter(ACTION_UPDATE_INTERVAL);
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context ctx, Intent intent) {
+                    try {
+                        int newInterval = intent.getIntExtra(EXTRA_INTERVAL_MS, -1);
+                        if (newInterval >= MIN_NETWORK_INTERVAL_MS && newInterval <= MAX_NETWORK_INTERVAL_MS) {
+                            sCachedNetworkIntervalMs = newInterval;
+                            XposedBridge.log("PopowMods: Net interval updated via broadcast: " + newInterval + " ms");
+
+                            if (sLastTrafficHandler != null) {
+                                Handler handler = sLastTrafficHandler.get();
+                                if (handler != null) {
+                                    handler.removeMessages(0);
+                                    handler.sendEmptyMessage(0);
+                                }
+                            }
+                        }
+                    } catch (Throwable t) {
+                        XposedBridge.log("PopowMods: Error handling interval broadcast: " + t);
+                    }
+                }
+            };
+
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, 2 /* Context.RECEIVER_EXPORTED */);
+            } else {
+                context.registerReceiver(receiver, filter);
+            }
+            XposedBridge.log("PopowMods: Interval receiver registered successfully in SystemUI");
+        } catch (Throwable t) {
+            XposedBridge.log("PopowMods: Failed to register interval receiver: " + t);
         }
     }
 

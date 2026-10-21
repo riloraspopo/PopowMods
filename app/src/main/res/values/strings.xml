@@ -12,6 +12,11 @@
     <string name="btn_restart_launcher">🏠 Restart Launcher</string>
     <string name="btn_restart_all">🔄 Restart Semua (SystemUI &amp; Launcher)</string>
 
+    <string name="network_settings_title">Pengaturan Interval Net Speed</string>
+    <string name="network_settings_desc">Atur frekuensi update kecepatan internet status bar. Mendukung interval di bawah 1 detik (contoh: 500 ms atau 0.5s). Nilai minimal 200 ms.</string>
+    <string name="network_settings_hint">Contoh: 500 (ms) atau 0.5 (detik)</string>
+    <string name="btn_save_network_interval">💾 Simpan Interval</string>
+
     <string name="feature_title">Fungsi &amp; Fitur</string>
     <string name="feature_1_name">Auto Confirm PIN (4 Digit)</string>
     <string name="feature_1_desc">Otomatis memverifikasi dan membuka layar kunci (Keyguard) saat 4 digit PIN selesai ditekan tanpa perlu menekan tombol centang / Enter secara manual.</string>
