@@ -1040,66 +1040,73 @@ public class MainHook implements IXposedHookLoadPackage {
 
         // 4. Hook Taskbar (Rail) position: vertical rail on right or left
         try {
-            final Class<?> oajClass = XposedHelpers.findClassIfExists("oaj", lpparam.classLoader);
-            final Class<?> oaeClass = XposedHelpers.findClassIfExists("oae", lpparam.classLoader);
-            final Class<?> nygClass = XposedHelpers.findClassIfExists("nyg", lpparam.classLoader);
+            Class<?> layoutClass = XposedHelpers.findClassIfExists("ohe", lpparam.classLoader);
+            if (layoutClass == null) {
+                layoutClass = XposedHelpers.findClassIfExists("oaj", lpparam.classLoader);
+            }
+            Class<?> layoutInfoClass = XposedHelpers.findClassIfExists("ogz", lpparam.classLoader);
+            if (layoutInfoClass == null) {
+                layoutInfoClass = XposedHelpers.findClassIfExists("oae", lpparam.classLoader);
+            }
 
-            if (oajClass != null) {
-                // Hook Loaj.ag(screenHeightDp, uiInfo) -> returns hasVerticalRail
-                XposedBridge.hookAllMethods(oajClass, "ag", new XC_MethodHook() {
+            if (layoutClass != null) {
+                final Class<?> targetLayout = layoutClass;
+                // Hook Lohe.ag / Loaj.ag(screenHeightDp, uiInfo) -> returns hasVerticalRail
+                XposedBridge.hookAllMethods(layoutClass, "ag", new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                         if (isVerticalRailForced()) {
                             param.setResult(true);
-                            XposedBridge.log("PopowMods: Loaj.ag forced hasVerticalRail=true");
+                            XposedBridge.log("PopowMods: " + targetLayout.getName() + ".ag forced hasVerticalRail=true");
                         }
                     }
                 });
 
-                // Hook Loaj.M(boolean isRhd, boolean isDriverAligned, int layoutType) -> vertical layout res
-                XposedBridge.hookAllMethods(oajClass, "M", new XC_MethodHook() {
+                // Hook Lohe.M / Loaj.M(boolean isRhd, boolean isDriverAligned, int layoutType) -> vertical layout res
+                XposedBridge.hookAllMethods(layoutClass, "M", new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                         if (isVerticalRailForced() && param.args != null && param.args.length >= 1) {
                             boolean isRight = isVerticalRailRightSide();
                             param.args[0] = isRight;
-                            XposedBridge.log("PopowMods: Loaj.M forced isRhd=" + isRight);
+                            XposedBridge.log("PopowMods: " + targetLayout.getName() + ".M forced isRhd=" + isRight);
                         }
                     }
                 });
 
-                // Hook Loaj.N(boolean isRhd, boolean isDriverAligned, int layoutType) -> redirect to M if vertical rail forced
-                XposedBridge.hookAllMethods(oajClass, "N", new XC_MethodHook() {
+                // Hook Lohe.N / Loaj.N(boolean isRhd, boolean isDriverAligned, int layoutType) -> redirect to M if vertical rail forced
+                XposedBridge.hookAllMethods(layoutClass, "N", new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                         if (isVerticalRailForced() && param.args != null && param.args.length >= 3) {
                             try {
                                 boolean isRight = isVerticalRailRightSide();
-                                Object res = XposedHelpers.callStaticMethod(oajClass, "M",
+                                Object res = XposedHelpers.callStaticMethod(targetLayout, "M",
                                         isRight, param.args[1], param.args[2]);
                                 if (res != null) {
                                     param.setResult(res);
-                                    XposedBridge.log("PopowMods: Loaj.N redirected to Loaj.M (result=" + res + ", isRight=" + isRight + ")");
+                                    XposedBridge.log("PopowMods: " + targetLayout.getName() + ".N redirected to M (result=" + res + ", isRight=" + isRight + ")");
                                 }
                             } catch (Throwable t) {
-                                XposedBridge.log("PopowMods: Error redirecting Loaj.N: " + t);
+                                XposedBridge.log("PopowMods: Error redirecting " + targetLayout.getName() + ".N: " + t);
                             }
                         }
                     }
                 });
-                XposedBridge.log("PopowMods: Successfully hooked Loaj for rail position");
+                XposedBridge.log("PopowMods: Successfully hooked " + layoutClass.getName() + " for rail position");
             }
 
-            if (oaeClass != null) {
-                // Hook Loae constructor: (int layoutResourceId, int displayWidthDp, int displayHeightDp, int layoutType, boolean isRightHandDrive, boolean hasVerticalRail, ...)
-                XposedBridge.hookAllConstructors(oaeClass, new XC_MethodHook() {
+            if (layoutInfoClass != null) {
+                final Class<?> targetInfo = layoutInfoClass;
+                // Hook Logz / Loae constructor: (int layoutResourceId, int displayWidthDp, int displayHeightDp, int layoutType, boolean isRightHandDrive, boolean hasVerticalRail, ...)
+                XposedBridge.hookAllConstructors(layoutInfoClass, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                         if (isVerticalRailForced() && param.args != null && param.args.length >= 6) {
                             boolean isRight = isVerticalRailRightSide();
                             param.args[4] = isRight;
                             param.args[5] = true;
-                            XposedBridge.log("PopowMods: Loae.<init> forced isRhd=" + isRight + ", hasVerticalRail=true");
+                            XposedBridge.log("PopowMods: " + targetInfo.getName() + ".<init> forced isRhd=" + isRight + ", hasVerticalRail=true");
                         }
                     }
 
@@ -1114,20 +1121,27 @@ public class MainHook implements IXposedHookLoadPackage {
                         }
                     }
                 });
-                XposedBridge.log("PopowMods: Successfully hooked Loae for rail position");
+                XposedBridge.log("PopowMods: Successfully hooked " + layoutInfoClass.getName() + " for rail position");
             }
 
-            if (nygClass != null) {
-                // Hook nyg.g() -> isRightHandDrive
-                XposedBridge.hookAllMethods(nygClass, "g", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        if (isVerticalRailForced()) {
-                            param.setResult(isVerticalRailRightSide());
-                        }
+            // Hook RHD provider across all known versions (skip interfaces, hook concrete classes ofn/nys)
+            for (String rhdName : new String[]{"ofn", "nys", "ofa", "nyg"}) {
+                try {
+                    Class<?> rCls = XposedHelpers.findClassIfExists(rhdName, lpparam.classLoader);
+                    if (rCls != null && !rCls.isInterface()) {
+                        XposedBridge.hookAllMethods(rCls, "g", new XC_MethodHook() {
+                            @Override
+                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                                if (isVerticalRailForced()) {
+                                    param.setResult(isVerticalRailRightSide());
+                                }
+                            }
+                        });
+                        XposedBridge.log("PopowMods: Successfully hooked " + rhdName + ".g (isRightHandDrive=" + isVerticalRailRightSide() + ")");
                     }
-                });
-                XposedBridge.log("PopowMods: Successfully hooked nyg.g (isRightHandDrive=" + isVerticalRailRightSide() + ")");
+                } catch (Throwable t) {
+                    XposedBridge.log("PopowMods: Note: " + rhdName + ".g hook: " + t);
+                }
             }
         } catch (Throwable t) {
             XposedBridge.log("PopowMods: Error hooking rail position: " + t);
@@ -1139,20 +1153,22 @@ public class MainHook implements IXposedHookLoadPackage {
             return false;
         }
         // Sub-displays to NEVER modify (modifying sub-displays crashes WindowManager Context attachment):
-        if (name.contains("GhostActivity")
-                || name.contains("/")
+        if (name.contains("/")
+                || name.contains("GhostActivity")
                 || name.contains("TemplateCarFragment")
                 || name.contains("Telemetry")
                 || name.contains("GhFacetBar")
-                || name.contains("Dashboard")
-                || name.contains("GhAppLauncher")
                 || name.contains("MediaService")) {
             return false;
         }
-        // Primary / root display names:
+        // Primary / root display names (including CarVirtualDeviceActivityVD for third-party apps):
         return name.contains("LayoutDisplay")
+                || name.contains("CarVirtualDeviceActivityVD")
+                || name.contains("CarVirtualDisplay")
+                || name.contains("NativeAppCarActivityDisplay")
                 || name.contains("CAR.PROJECTION")
                 || name.contains("CarDisplay")
+                || name.contains("PrimaryDisplay")
                 || name.equalsIgnoreCase("Car")
                 || name.contains("Projection");
     }
